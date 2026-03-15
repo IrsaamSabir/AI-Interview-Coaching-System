@@ -1,0 +1,161 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* AI Interview Coaching System - Professional Academic Design System */
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+@layer base {
+  :root {
+    /* Professional academic palette - calm, focused, trustworthy */
+    --background: 220 20% 97%;
+    --foreground: 220 25% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 25% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 25% 10%;
+
+    /* Professional blue accent */
+    --primary: 215 70% 45%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 15% 92%;
+    --secondary-foreground: 220 25% 20%;
+
+    --muted: 220 15% 94%;
+    --muted-foreground: 220 10% 45%;
+
+    --accent: 200 60% 50%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 65% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 15% 88%;
+    --input: 220 15% 88%;
+    --ring: 215 70% 45%;
+
+    --radius: 0.75rem;
+
+    /* Status colors */
+    --success: 145 60% 40%;
+    --success-foreground: 0 0% 100%;
+    --warning: 35 90% 50%;
+    --warning-foreground: 0 0% 100%;
+    --info: 200 80% 50%;
+    --info-foreground: 0 0% 100%;
+
+    /* Interview specific */
+    --camera-bg: 220 20% 15%;
+    --overlay-bg: 220 20% 10% / 0.7;
+  }
+
+  .dark {
+    --background: 220 25% 8%;
+    --foreground: 220 15% 95%;
+
+    --card: 220 25% 12%;
+    --card-foreground: 220 15% 95%;
+
+    --popover: 220 25% 12%;
+    --popover-foreground: 220 15% 95%;
+
+    --primary: 215 70% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 20% 18%;
+    --secondary-foreground: 220 15% 90%;
+
+    --muted: 220 20% 16%;
+    --muted-foreground: 220 10% 60%;
+
+    --accent: 200 60% 55%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 60% 45%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 20% 20%;
+    --input: 220 20% 20%;
+    --ring: 215 70% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    font-family: "Inter", system-ui, sans-serif;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+}
+
+@layer components {
+  /* Card variants */
+  .card-elevated {
+    @apply bg-card rounded-xl border border-border shadow-sm;
+  }
+
+  .card-section {
+    @apply bg-card rounded-lg border border-border p-6;
+  }
+
+  /* Upload dropzone */
+  .upload-dropzone {
+    @apply border-2 border-dashed border-border rounded-xl p-8 text-center transition-all duration-200;
+    @apply hover:border-primary hover:bg-primary/5 cursor-pointer;
+  }
+
+  .upload-dropzone.active {
+    @apply border-primary bg-primary/10;
+  }
+
+  /* Status indicators */
+  .status-indicator {
+    @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium;
+  }
+
+  .status-good {
+    @apply bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))];
+  }
+
+  .status-average {
+    @apply bg-[hsl(var(--warning)/0.15)] text-[hsl(var(--warning))];
+  }
+
+  .status-needs-work {
+    @apply bg-[hsl(var(--destructive)/0.15)] text-destructive;
+  }
+
+  /* Camera frame */
+  .camera-frame {
+    @apply relative aspect-video bg-[hsl(var(--camera-bg))] rounded-xl overflow-hidden;
+  }
+
+  .camera-overlay {
+    @apply absolute inset-x-0 top-0 p-4 bg-gradient-to-b from-[hsl(var(--overlay-bg))] to-transparent;
+  }
+
+  /* Instruction cards */
+  .instruction-card {
+    @apply bg-card border border-border rounded-lg p-4;
+  }
+
+  /* Page container */
+  .page-container {
+    @apply min-h-screen bg-background px-6 py-8;
+  }
+
+  .page-centered {
+    @apply flex items-center justify-center min-h-screen bg-background px-6;
+  }
+}
