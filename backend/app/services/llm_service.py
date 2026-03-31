@@ -96,5 +96,5 @@ def call_llm(prompt: str, model: str = "phi3", max_tokens: int = 120):
         }
 
     except Exception as e:
-        print("⚠️ Ollama Error:", e)
+        print("[WARNING] Ollama Error:", e)
         return {"error": str(e)}

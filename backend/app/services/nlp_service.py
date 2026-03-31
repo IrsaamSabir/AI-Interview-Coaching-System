@@ -49,13 +49,13 @@ def extract_skills(text: str):
 
     found = set()
 
-    # 1️⃣ extract from skills section
+    # 1 extract from skills section
     for domain_skills in SKILLS_DB.values():
         for skill in domain_skills:
             if skill.lower() in skills_section:
                 found.add(skill.lower())
 
-    # 2️⃣ add additional valid skills from whole CV
+    # 2-  add additional valid skills from whole CV
     for domain_skills in SKILLS_DB.values():
         for skill in domain_skills:
             if skill.lower() in text:

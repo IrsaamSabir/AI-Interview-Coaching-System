@@ -17,17 +17,29 @@ def generate_multi_layer_questions(stack: str, top_skills: list):
     skills_text = ", ".join(top_skills)
 
     prompt = f"""
-Generate 6 technical interview questions.
+You are an expert technical interviewer.
+
+Generate 6 high-quality technical interview questions.
 
 Candidate Role: {stack}
 Candidate Skills: {skills_text}
 
-Rules:
-- Questions must relate to the role
-- Maximum 10 words
-- One question per line
-- No numbering
-- No explanation
+Strict Guidelines:
+
+Questions must directly test core concepts and fundamental understanding of the given skills
+Focus on logic, reasoning, and how things work internally
+Avoid debugging, system design, and real-world scenario-based questions
+Avoid generic prompts like "define" or "explain"
+Questions should require thinking, not memorization
+Keep questions clear, specific, and concept-focused
+
+Output Rules:
+
+One question per line
+No numbering
+No explanations
+Each question must be concise (10-20 words)
+Ensure questions feel like real interview conceptual questions
 """
 
     response = call_llm(prompt, model="phi3", max_tokens=120)

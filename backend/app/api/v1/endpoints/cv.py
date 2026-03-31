@@ -1,7 +1,7 @@
 from fastapi import APIRouter, UploadFile, File
 import shutil
+import traceback
 from app.services.cv_service import analyze_cv
-
 router = APIRouter()
 
 @router.post("/analyze")
