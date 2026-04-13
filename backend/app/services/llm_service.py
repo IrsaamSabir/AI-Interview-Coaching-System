@@ -1,100 +1,22 @@
-import ollama
+import os
+from openai import OpenAI
+from dotenv import load_dotenv
+
+load_dotenv()
+
+_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+_MODEL  = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 
-# ---------------------------------------------------
-# FAST DOMAIN PREDICTION (RULE BASED)
-# ---------------------------------------------------
-
-def llm_domain_prediction(skills: list, education: str) -> str:
-
-    skills = [s.lower() for s in skills]
-
-    scores = {
-        "AI": 0,
-        "Backend": 0,
-        "Frontend": 0,
-        "Data": 0,
-        "Mobile": 0
-    }
-
-    ai_keywords = [
-        "machine learning", "deep learning", "tensorflow",
-        "pytorch", "opencv", "nlp", "transformer",
-        "computer vision", "speech recognition"
-    ]
-
-    backend_keywords = [
-        "django", "flask", "fastapi", "node", "spring",
-        "api", "backend", "database"
-    ]
-
-    frontend_keywords = [
-        "react", "html", "css", "javascript", "vue"
-    ]
-
-    data_keywords = [
-        "pandas", "numpy", "analytics", "data analysis",
-        "sql", "scikit-learn"
-    ]
-
-    mobile_keywords = [
-        "flutter", "android", "ios", "kotlin", "swift"
-    ]
-
-    for skill in skills:
-
-        if skill in ai_keywords:
-            scores["AI"] += 2
-
-        if skill in backend_keywords:
-            scores["Backend"] += 1
-
-        if skill in frontend_keywords:
-            scores["Frontend"] += 1
-
-        if skill in data_keywords:
-            scores["Data"] += 1
-
-        if skill in mobile_keywords:
-            scores["Mobile"] += 1
-
-    best_domain = max(scores, key=scores.get)
-
-    if scores[best_domain] == 0:
-        return "Other"
-
-    return best_domain
-
-# ---------------------------------------------------
-# GENERIC OLLAMA CALL (FAST VERSION)
-# ---------------------------------------------------
-
-def call_llm(prompt: str, model: str = "phi3", max_tokens: int = 120):
-    """
-    Generic LLM call using Ollama.
-    Optimized for speed.
-    """
-
+def call_llm(prompt: str, max_tokens: int = 500) -> dict:
     try:
-        response = ollama.chat(
-            model=model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            options={
-                "temperature": 0.3,
-                "num_predict": max_tokens,
-                "num_ctx": 2048
-            }
+        response = _client.chat.completions.create(
+            model=_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens,
+            temperature=0.3,
         )
-
-        return {
-            "raw_response": response["message"]["content"].strip()
-        }
-
+        return {"raw_response": response.choices[0].message.content.strip()}
     except Exception as e:
-        print("[WARNING] Ollama Error:", e)
+        print("[WARNING] OpenAI Error:", e)
         return {"error": str(e)}

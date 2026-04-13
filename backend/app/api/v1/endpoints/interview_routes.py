@@ -1,130 +1,75 @@
 import uuid
 from fastapi import APIRouter, HTTPException
 
-from app.models.interview_models import (
-    InterviewStartRequest,
-    InterviewStartResponse,
-    InterviewAnswerRequest,
-    AnswerResponse,
-    QuestionResponse,
-    StatusResponse,
-    ReportResponse,
+from app.models.interview_models     import (
+    InterviewStartRequest, InterviewStartResponse,
+    InterviewAnswerRequest, AnswerResponse,
+    QuestionResponse, StatusResponse, ReportResponse,
 )
-from app.services.stack_service          import detect_stack
-from app.services.skill_scoring_service  import score_skills
-from app.services.question_service       import generate_multi_layer_questions
-from app.services.evaluation_service     import evaluate_answer
-from app.services.feedback_service       import generate_report
-from app.services.interview_service      import InterviewSession
-from app.core.session_store              import create_session, get_session
+from app.services.question_service   import generate_first_question, generate_next_question
+from app.services.evaluation_service import evaluate_answer
+from app.services.feedback_service   import generate_report
+from app.services.interview_service  import InterviewSession, MAX_QUESTIONS
+from app.core.session_store          import create_session, get_session
 
 router = APIRouter()
 
 
-# ------------------------------------------------------
-# 1. START  -  create a new interview session
-# POST /interview/start
-# Body   : { domain, skills }
-# Returns: session_id, stack, total_questions
-# ------------------------------------------------------
 @router.post("/start", response_model=InterviewStartResponse)
 def start_interview(request: InterviewStartRequest):
-
-    domain = request.domain
-    skills = request.skills
-
-    stack      = detect_stack(domain, skills)
-    scored     = score_skills(skills, domain)
-    top_skills = [s["skill"] for s in scored[:3]]
-
-    questions = generate_multi_layer_questions(stack, top_skills)
-
-    if not questions:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to generate questions. Make sure Ollama is running."
-        )
-
+    first_q    = generate_first_question(request.domain, request.skills)
+    session    = InterviewSession(domain=request.domain, skills=request.skills)
+    session.set_question(first_q)
     session_id = str(uuid.uuid4())
-    # Pass skills so report can reference them later
-    session    = InterviewSession(
-        questions = questions,
-        domain    = domain,
-        stack     = stack,
-        skills    = skills
-    )
     create_session(session_id, session)
-
     return InterviewStartResponse(
-        session_id      = session_id,
-        domain          = domain,
-        stack           = stack,
-        total_questions = len(questions),
-        message         = f"Interview started. {len(questions)} questions ready."
+        session_id    = session_id,
+        domain        = request.domain,
+        max_questions = MAX_QUESTIONS,
+        message       = "Interview started."
     )
 
 
-# ------------------------------------------------------
-# 2. QUESTION  -  get the current question
-# GET /interview/question?session_id=...
-# ------------------------------------------------------
 @router.get("/question", response_model=QuestionResponse)
 def get_question(session_id: str):
-
     session = _get_or_404(session_id)
-
-    if session.is_completed():
-        raise HTTPException(
-            status_code=400,
-            detail="Interview complete. Call GET /report to see your results."
-        )
-
-    q_obj = session.current_question()
-    if not q_obj:
-        raise HTTPException(status_code=400, detail="No more questions available.")
-
-    number = session.answered_count() + 1
-    total  = len(session.questions)
-
+    if session.current_question is None:
+        raise HTTPException(status_code=400, detail="No question available.")
     return QuestionResponse(
         session_id      = session_id,
-        question_number = number,
-        total_questions = total,
-        question        = q_obj["question"],
-        is_last         = (number == total)
+        question_number = session.question_count,
+        total_questions = MAX_QUESTIONS,
+        question        = session.current_question["question"],
+        layer           = session.current_question.get("layer", "basic"),
+        is_last         = session.question_count >= MAX_QUESTIONS
     )
 
 
-# ------------------------------------------------------
-# 3. ANSWER  -  submit answer for current question
-# POST /interview/answer
-# Body: { session_id, answer }
-# ------------------------------------------------------
 @router.post("/answer", response_model=AnswerResponse)
 def submit_answer(request: InterviewAnswerRequest):
-
-    session = _get_or_404(request.session_id)
-
-    if session.is_completed():
-        raise HTTPException(status_code=400, detail="Interview already completed.")
-
-    q_obj    = session.current_question()
-    question = q_obj["question"]
-
+    session    = _get_or_404(request.session_id)
+    if session.current_question is None:
+        raise HTTPException(status_code=400, detail="No active question.")
+    question   = session.current_question["question"]
     evaluation = evaluate_answer(question, request.answer)
     score      = float(evaluation.get("score", 5))
     feedback   = evaluation.get("feedback", "No feedback available.")
 
-    session.save_answer(
-        question = question,
-        answer   = request.answer,
-        score    = score,
-        feedback = feedback
-    )
-    session.advance()
+    session.save_answer(answer=request.answer, score=score, feedback=feedback)
 
-    number = session.answered_count()
-    total  = len(session.questions)
+    interview_complete = session.is_completed()
+    if not interview_complete:
+        next_q = generate_next_question(
+            domain         = session.domain,
+            skills         = session.skills,
+            prev_question  = question,
+            prev_answer    = request.answer,
+            score          = score,
+            question_count = session.question_count
+        )
+        session.set_question(next_q)
+    else:
+        session.current_question = None
 
     return AnswerResponse(
         session_id         = request.session_id,
@@ -132,26 +77,19 @@ def submit_answer(request: InterviewAnswerRequest):
         answer             = request.answer,
         score              = score,
         feedback           = feedback,
-        question_number    = number,
-        total_questions    = total,
-        interview_complete = session.is_completed()
+        question_number    = session.answered_count(),
+        total_questions    = MAX_QUESTIONS,
+        interview_complete = interview_complete
     )
 
 
-# ------------------------------------------------------
-# 4. STATUS  -  check progress mid-interview
-# GET /interview/status?session_id=...
-# ------------------------------------------------------
 @router.get("/status", response_model=StatusResponse)
 def get_status(session_id: str):
-
     session = _get_or_404(session_id)
-
     return StatusResponse(
         session_id      = session_id,
         domain          = session.domain,
-        stack           = session.stack,
-        total_questions = len(session.questions),
+        total_questions = MAX_QUESTIONS,
         answered        = session.answered_count(),
         remaining       = session.remaining_count(),
         average_score   = session.average_score(),
@@ -159,44 +97,30 @@ def get_status(session_id: str):
     )
 
 
-# ------------------------------------------------------
-# 5. REPORT  -  full LLM-generated report after completion
-# GET /interview/report?session_id=...
-# ------------------------------------------------------
 @router.get("/report", response_model=ReportResponse)
 def get_report(session_id: str):
-
     session = _get_or_404(session_id)
-
-    if not session.is_completed():
-        answered  = session.answered_count()
-        total     = len(session.questions)
-        raise HTTPException(
-            status_code=400,
-            detail=f"Interview not yet complete - {answered}/{total} questions answered."
-        )
-
-    # Use cached report if already generated (avoid calling phi3 twice)
+    if session.answered_count() == 0:
+        raise HTTPException(status_code=400, detail="No answers recorded yet.")
     if session.report is None:
         session.report = generate_report(
             domain        = session.domain,
-            stack         = session.stack,
             skills        = session.skills,
             answers       = session.get_transcript(),
             average_score = session.average_score()
         )
-
     r = session.report
-
+    avg = session.average_score()
     return ReportResponse(
         session_id      = session_id,
         domain          = session.domain,
-        stack           = session.stack,
-        total_questions = len(session.questions),
+        stack           = ", ".join(session.skills[:3]) if session.skills else "",
+        total_questions = session.answered_count(),
         answered        = session.answered_count(),
-        average_score   = session.average_score(),
+        overall_score   = r.get("overall_score", avg),
+        average_score   = avg,
         level           = r.get("level", session.level()),
-        status          = "completed",
+        status          = "completed" if session.is_completed() else "ended_early",
         summary         = r.get("summary", ""),
         strengths       = r.get("strengths", []),
         weaknesses      = r.get("weaknesses", []),
@@ -207,14 +131,8 @@ def get_report(session_id: str):
     )
 
 
-# ------------------------------------------------------
-# Helper  -  get session or raise 404
-# ------------------------------------------------------
 def _get_or_404(session_id: str) -> InterviewSession:
     session = get_session(session_id)
     if not session:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Session '{session_id}' not found. Start a new interview first."
-        )
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
     return session

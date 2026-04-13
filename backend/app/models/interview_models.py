@@ -1,8 +1,6 @@
 from pydantic import BaseModel
-from typing import List, Optional, Dict
+from typing import List, Dict
 
-
-# -- Requests -------------------------------------------
 
 class InterviewStartRequest(BaseModel):
     domain: str
@@ -14,13 +12,10 @@ class InterviewAnswerRequest(BaseModel):
     answer: str
 
 
-# -- Responses ------------------------------------------
-
 class InterviewStartResponse(BaseModel):
     session_id: str
     domain: str
-    stack: str
-    total_questions: int
+    max_questions: int
     message: str
 
 
@@ -29,6 +24,7 @@ class QuestionResponse(BaseModel):
     question_number: int
     total_questions: int
     question: str
+    layer: str
     is_last: bool
 
 
@@ -46,31 +42,27 @@ class AnswerResponse(BaseModel):
 class StatusResponse(BaseModel):
     session_id: str
     domain: str
-    stack: str
     total_questions: int
     answered: int
     remaining: int
     average_score: float
-    status: str                  # "in_progress" | "completed"
+    status: str
 
-
-# -- Rich final report ----------------------------------
 
 class ReportResponse(BaseModel):
-    session_id:     str
-    domain:         str
-    stack:          str
+    session_id: str
+    domain: str
+    stack: str = ""
     total_questions: int
-    answered:       int
-    average_score:  float
-    level:          str          # Beginner | Intermediate | Advanced | Expert
-    status:         str
-    # LLM-generated fields
-    summary:        str
-    strengths:      List[str]
-    weaknesses:     List[str]
-    skill_scores:   Dict[str, float]
+    answered: int
+    overall_score: float
+    average_score: float
+    level: str
+    status: str
+    summary: str
+    strengths: List[str]
+    weaknesses: List[str]
+    skill_scores: Dict[str, float]
     recommendation: str
-    # Full transcript
-    answers:        List[dict]
-    scores:         List[float]
+    answers: List[dict]
+    scores: List[float]

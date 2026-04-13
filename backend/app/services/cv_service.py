@@ -1,64 +1,78 @@
-import sys
-from app.utils.pdf_reader   import extract_text
-from app.utils.text_cleaner import clean_text
-from app.services.nlp_service    import extract_skills, extract_education
-from app.services.domain_service import rule_based_domain
-from app.services.llm_service    import llm_domain_prediction
+import json
+import re
+from datetime import datetime
+from app.utils.pdf_reader import extract_text
+from app.services.llm_service import call_llm
 
 
-def _safe_print(label: str, value: str = "") -> None:
-    """Print to console safely - replaces unencodable chars instead of crashing."""
-    msg = f"{label}{value}"
-    safe = msg.encode(sys.stdout.encoding or "utf-8", errors="replace").decode(sys.stdout.encoding or "utf-8")
-    print(safe)
+def _build_prompt(cv_text: str) -> str:
+    today = datetime.now().strftime("%B %Y")
+    return f"""You are a CV parser. First determine if the document is a CV/resume.
+
+A CV/resume typically contains: name, contact info, work experience or education, and skills.
+A certificate, transcript, letter, or other document is NOT a CV.
+
+Document:
+{cv_text}
+
+If this is NOT a CV/resume, return exactly:
+{{"is_cv": false}}
+
+If this IS a CV/resume, return ONLY valid JSON:
+{{
+  "is_cv": true,
+  "skills": ["all technical skills from Skills section, Projects, and Work Experience"],
+  "education": "exact degree and field e.g. Bachelors in Computer Science",
+  "domain": "infer the main domain from the overall profile e.g. Backend Developer, Data Scientist",
+  "years_experience": "Estimate total professional experience in years based on work history. Today is {today}."
+}}
+
+Rules:
+- For skills, read every section — if a project says 'built with X' or experience says 'used Y', include X and Y.
+- Return ONLY the JSON, no extra text."""
+
+
+def _extract_json(text: str):
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+    try:
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            return json.loads(match.group())
+    except Exception:
+        pass
+    return None
 
 
 def analyze_cv(path: str) -> dict:
+    raw      = extract_text(path)
+    prompt   = _build_prompt(raw[:3000])
+    response = call_llm(prompt=prompt, max_tokens=500)
 
-    # 1 - Extract raw text (paragraphs + tables)
-    raw = extract_text(path)
-    _safe_print("\n[CV TEXT SAMPLE]\n", raw[:500])   # - was crashing here
+    raw_response = response.get("raw_response", "")
+    print("[CV LLM Response]:", raw_response[:300])
 
-    # 2 - Light clean (preserves . - / # +)
-    text = clean_text(raw)
+    result = _extract_json(raw_response)
+    if not result:
+        raise RuntimeError("Failed to parse document. Please upload a valid CV/resume.")
 
-    # 3 - Extract skills and education from cleaned text
-    skills    = extract_skills(text)
-    education = extract_education(text)
+    if not result.get("is_cv", True):
+        raise RuntimeError("The uploaded document does not appear to be a CV or resume. Please upload your resume.")
 
-    _safe_print(f"\n[Skills found ({len(skills)})]: ", str(skills))
-    _safe_print(f"[Education]: ", str(education))
+    skills    = [s.lower().strip() for s in result.get("skills", [])]
+    education = result.get("education", "Unknown")
+    domain    = result.get("domain", "Unknown").strip()
+    years     = result.get("years_experience", 0)
 
-    # 4 - Rule-based domain detection
-    domain, confidence, scores = rule_based_domain(skills)
-
-    # 5 - LLM fallback if confidence is too low
-    if confidence < 2:
-        _safe_print("[Low confidence] - trying LLM domain prediction")
-        llm_domain = llm_domain_prediction(skills, education)
-        if llm_domain and llm_domain != "Other":
-            domain = llm_domain
-        else:
-            domain = "non_tech"
-
-    _safe_print(f"[Domain]: {domain}  (confidence: {confidence})")
-
-    # 6 - Return clean
-    return {
-        "skills":    skills,
-        "education": education,
-        "domain":    domain,
-        "message":   _domain_message(domain, skills)
-    }
-
-
-def _domain_message(domain: str, skills: list) -> str:
-    if domain == "non_tech":
-        return (
-            "No tech skills detected in this CV. "
-            "This system is designed for software/tech interviews. "
-            "Please upload a CV with technical skills."
-        )
     if not skills:
-        return "Domain detected but skill list is thin. Interview questions will be general."
-    return f"CV analysed successfully. Domain: {domain}."
+        raise RuntimeError("No skills found in the document. Please upload a proper CV/resume.")
+
+    return {
+        "skills":           skills,
+        "education":        education,
+        "domain":           domain,
+        "years_experience": years,
+        "message":          f"CV analysed successfully. Domain: {domain}."
+    }

@@ -1,18 +1,17 @@
 import os
 import httpx
+from openai import OpenAI
 from dotenv import load_dotenv
+import io
 
 load_dotenv()
 
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
-ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Rachel
-ELEVENLABS_TTS_URL = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
-ELEVENLABS_STT_URL = "https://api.elevenlabs.io/v1/speech-to-text"
+ELEVENLABS_API_KEY  = os.getenv("ELEVENLABS_API_KEY", "")
+ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+ELEVENLABS_TTS_URL  = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
 
+_openai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# -------------------------------------------------
-# TTS - convert question text - audio bytes (MP3)
-# -------------------------------------------------
 def text_to_speech(text: str) -> bytes:
     if not ELEVENLABS_API_KEY:
         raise ValueError("ELEVENLABS_API_KEY is not set in your .env file.")
@@ -45,34 +44,22 @@ def text_to_speech(text: str) -> bytes:
 
     return response.content   # raw MP3 bytes
 
+def speech_to_text(audio_bytes: bytes, filename: str = "answer.webm") -> str:
+    print(f"[STT] filename={filename}, size={len(audio_bytes)} bytes")
 
-# -------------------------------------------------
-# STT - convert audio file bytes - transcript text
-# -------------------------------------------------
-def speech_to_text(audio_bytes: bytes, filename: str = "answer.mp3") -> str:
-    if not ELEVENLABS_API_KEY:
-        raise ValueError("ELEVENLABS_API_KEY is not set in your .env file.")
+    audio_file = io.BytesIO(audio_bytes)
+    audio_file.name = filename
 
-    headers = {
-        "xi-api-key": ELEVENLABS_API_KEY,
-    }
-
-    files = {
-        "file": (filename, audio_bytes, "audio/mpeg"),
-        "model_id": (None, "scribe_v1"),
-    }
-
-    response = httpx.post(
-        ELEVENLABS_STT_URL,
-        headers=headers,
-        files=files,
-        timeout=60.0
+    response = _openai.audio.transcriptions.create(
+        model="whisper-1",
+        file=audio_file,
+        language="en"
     )
 
-    if response.status_code != 200:
-        raise RuntimeError(
-            f"ElevenLabs STT failed: {response.status_code} - {response.text}"
-        )
+    transcript = response.text.strip()
+    print(f"[STT] transcript: {transcript}")
 
-    data = response.json()
-    return data.get("text", "").strip()
+    if not transcript:
+        raise RuntimeError("No speech detected. Please speak clearly and try again.")
+
+    return transcript

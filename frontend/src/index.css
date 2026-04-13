@@ -142,7 +142,7 @@
   }
 
   .camera-overlay {
-    @apply absolute inset-x-0 top-0 p-4 bg-gradient-to-b from-[hsl(var(--overlay-bg))] to-transparent;
+    @apply absolute inset-x-0 top-0 p-4 bg-gradient-to-b from-[hsl(var(--overlay-bg))] to-transparent z-10;
   }
 
   /* Instruction cards */

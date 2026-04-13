@@ -1,73 +1,86 @@
 from app.services.llm_service import call_llm
 
 
-def generate_multi_layer_questions(stack: str, top_skills: list):
+def generate_first_question(domain: str, skills: list) -> dict:
+    """Generate a warm-up opening question based on domain and skills."""
+    skills_text = ", ".join(skills[:6]) if skills else domain
 
-    if not top_skills:
+    prompt = f"""You are a senior technical interviewer starting an interview.
 
-        return [
-            {"layer": "core", "question": "Explain object oriented programming."},
-            {"layer": "core", "question": "What is REST API?"},
-            {"layer": "core", "question": "What is version control?"},
-            {"layer": "core", "question": "What is Git?"},
-            {"layer": "core", "question": "Explain MVC architecture."},
-            {"layer": "core", "question": "What is debugging?"}
-        ]
-
-    skills_text = ", ".join(top_skills)
-
-    prompt = f"""
-You are an expert technical interviewer.
-
-Generate 6 high-quality technical interview questions.
-
-Candidate Role: {stack}
+Candidate Role: {domain}
 Candidate Skills: {skills_text}
 
-Strict Guidelines:
+Generate ONE warm-up opening question to start the interview.
+- Should be a basic concept question to ease the candidate in
+- Clear and concise (10-20 words)
+- No numbering, no explanation, just the question
 
-Questions must directly test core concepts and fundamental understanding of the given skills
-Focus on logic, reasoning, and how things work internally
-Avoid debugging, system design, and real-world scenario-based questions
-Avoid generic prompts like "define" or "explain"
-Questions should require thinking, not memorization
-Keep questions clear, specific, and concept-focused
+Output: one question only"""
 
-Output Rules:
+    response = call_llm(prompt=prompt, max_tokens=80)
+    raw      = response.get("raw_response", "").strip()
+    question = _clean_question(raw)
 
-One question per line
-No numbering
-No explanations
-Each question must be concise (10-20 words)
-Ensure questions feel like real interview conceptual questions
-"""
+    return {"question": question, "layer": "basic"}
 
-    response = call_llm(prompt, model="phi3", max_tokens=120)
 
-    print("LLM RESPONSE:", response)
+def generate_next_question(
+    domain: str,
+    skills: list,
+    prev_question: str,
+    prev_answer: str,
+    score: float,
+    question_count: int,
+) -> dict:
+    """Generate the next question dynamically based on the previous answer and score."""
 
-    if "raw_response" not in response:
-        return []
+    skills_text = ", ".join(skills[:6]) if skills else domain
 
-    text = response["raw_response"]
+    # question_count is the number already answered when this is called,
+    # so question_count == 1 means we just finished Q1 and are generating Q2.
+    if question_count <= 2:
+        layer       = "basic"
+        instruction = "Ask a slightly deeper follow-up or move to another core concept from the candidate's skills."
+    elif score >= 7:
+        layer       = "advanced"
+        instruction = "The candidate answered well. Ask a more advanced or nuanced question on the same topic or a closely related skill."
+    elif score >= 4:
+        layer       = "intermediate"
+        instruction = "The candidate partially answered. Ask a clarifying or related question to probe their understanding further."
+    else:
+        layer       = "basic"
+        instruction = "The candidate struggled. Pivot to a different skill from their list and ask a simpler foundational question."
 
-    questions = []
+    prompt = f"""You are a senior technical interviewer conducting a live interview.
 
-    for line in text.split("\n"):
+Candidate Role: {domain}
+Candidate Skills: {skills_text}
 
-        q = line.strip()
+Previous Question: {prev_question}
+Candidate Answer: {prev_answer}
+Score given: {score}/10
 
-        if len(q) < 6:
-            continue
+{instruction}
 
-        q = q.replace("-", "").replace("*", "").strip()
+Rules:
+- Do NOT repeat or rephrase the previous question
+- One question only, no numbering, no explanation
+- Clear and concise (10-20 words)
 
-        questions.append({
-            "layer": "core",
-            "question": q
-        })
+Output: one question only"""
 
-        if len(questions) == 6:
-            break
+    response = call_llm(prompt=prompt, max_tokens=80)
+    raw      = response.get("raw_response", "").strip()
+    question = _clean_question(raw)
 
-    return questions
+    return {"question": question, "layer": layer}
+
+
+def _clean_question(text: str) -> str:
+    """Strip numbering, bullets, and surrounding quotes from LLM output."""
+    text = text.strip().strip('"').strip("'")
+    text = text.lstrip("0123456789.-) ").strip()
+    text = text.replace("**", "").strip()
+    if text.startswith("-"):
+        text = text[1:].strip()
+    return text if len(text) > 6 else "Can you walk me through a core concept from your primary skill?"

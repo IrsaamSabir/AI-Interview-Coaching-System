@@ -12,14 +12,14 @@ class TTSRequest(BaseModel):
 
 @router.post("/tts")
 def tts(request: TTSRequest):
-    """Convert question text - MP3 audio. Frontend plays it directly."""
+    """Convert question text to MP3 audio."""
     audio = text_to_speech(request.text)
     return Response(content=audio, media_type="audio/mpeg")
 
 
 @router.post("/stt")
 async def stt(file: UploadFile = File(...)):
-    """Convert candidate mic recording - text transcript."""
+    """Convert candidate mic recording to text transcript."""
     audio_bytes = await file.read()
-    transcript = speech_to_text(audio_bytes, filename=file.filename)
+    transcript  = speech_to_text(audio_bytes, filename=file.filename)
     return {"transcript": transcript}

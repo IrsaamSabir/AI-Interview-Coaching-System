@@ -3,9 +3,6 @@ import re
 from app.services.llm_service import call_llm
 
 
-# -------------------------------------------------
-# JSON extractor
-# -------------------------------------------------
 def extract_json(text: str):
     try:
         return json.loads(text)
@@ -20,106 +17,64 @@ def extract_json(text: str):
     return None
 
 
-# -------------------------------------------------
-# Pre-check: catch bad answers BEFORE calling phi3
-# Returns a rejection dict or None if answer is ok
-# -------------------------------------------------
-def _pre_check(question: str, answer: str) -> dict | None:
-
-    q = question.strip().lower()
-    a = answer.strip().lower()
-
-    # 1. Empty or whitespace only
+def _pre_check(question: str, answer: str):
+    a = answer.strip()
     if not a:
-        return {
-            "score": 0,
-            "feedback": "No answer was provided."
-        }
-
-    # 2. Answer is too short (less than 8 words)
-    word_count = len(answer.strip().split())
+        return {"score": 0, "feedback": "No answer was provided."}
+    word_count = len(a.split())
     if word_count < 8:
-        return {
-            "score": 1,
-            "feedback": (
-                f"Answer is too short ({word_count} words). "
-                "Please provide a proper explanation with at least a few sentences."
-            )
-        }
-
-    # 3. Answer is identical or nearly identical to the question
-    q_words = set(q.split())
-    a_words = set(a.split())
-    if q_words and len(q_words) > 0:
-        overlap = len(q_words & a_words) / len(q_words)
-        if overlap >= 0.85 and word_count <= len(q.split()) + 3:
-            return {
-                "score": 0,
-                "feedback": (
-                    "Your answer appears to be a copy of the question. "
-                    "Please explain the concept in your own words."
-                )
-            }
-
-    # 4. Answer is a single repeated word / gibberish
-    unique_words = set(a.split())
-    if len(unique_words) <= 2 and word_count >= 5:
-        return {
-            "score": 1,
-            "feedback": "Answer does not contain meaningful content. Please try again."
-        }
-
-    return None  # answer passed all checks - send to phi3
+        return {"score": 1, "feedback": f"Answer is too short ({word_count} words). Please provide a proper explanation."}
+    unique_ratio = len(set(a.lower().split())) / word_count
+    if unique_ratio < 0.35 and word_count > 10:
+        return {"score": 1, "feedback": "Answer appears repetitive. Please provide a clear explanation."}
+    q_words = set(question.lower().split())
+    a_words = set(a.lower().split())
+    if q_words and (len(q_words & a_words) / len(q_words)) >= 0.85:
+        return {"score": 0, "feedback": "Answer mirrors the question too closely. Please explain in your own words."}
+    return None
 
 
-# -------------------------------------------------
-# Main evaluation function
-# -------------------------------------------------
 def evaluate_answer(question: str, answer: str) -> dict:
-
-    # Run pre-check first - no LLM call wasted on bad input
     rejection = _pre_check(question, answer)
     if rejection:
-        print(f"[PRE-CHECK] Rejected answer: {rejection['feedback']}")
+        print(f"[PRE-CHECK] {rejection['feedback']}")
         return rejection
 
-    # Build a strict evaluation prompt
-    prompt = f"""You are a strict senior software engineering interviewer.
+    prompt = (
+        "You are a fair and practical technical interviewer evaluating a candidate's live answer.\n\n"
 
-Question:
-{question}
+f"Question: {question}\n\n"
+f"Candidate Answer: {answer}\n\n"
 
-Candidate Answer:
-{answer}
+"Scoring rubric (be slightly lenient and realistic):\n"
+"  0-2: No understanding or completely incorrect\n"
+"  3-4: Basic attempt, some relevant ideas but mostly unclear or incorrect\n"
+"  5-6: Acceptable answer, generally correct but missing clarity, depth, or examples\n"
+"  7-8: Good answer, correct with reasonable explanation or examples\n"
+"  9-10: Strong answer, clear, confident, and shows practical understanding\n\n"
 
-Evaluate strictly. A good answer must:
-- Directly address the question
-- Show actual technical understanding
-- Contain specific details, not just keywords
+"Evaluation guidelines:\n"
+"- Focus on the main concept asked in the question\n"
+"- Do NOT expect perfect or textbook definitions\n"
+"- Reward partial understanding if the core idea is correct\n"
+"- Do NOT penalize for minor mistakes, wording issues, or missing edge cases\n"
+"- Be forgiving if the answer is practical but not deeply theoretical\n\n"
 
-Penalise heavily if the answer:
-- Just repeats the question words
-- Is vague with no technical depth
-- Shows no real understanding
+"Feedback style:\n"
+"- First mention what the candidate did correctly\n"
+"- Then briefly mention what could be improved\n"
+"- Keep feedback concise and constructive\n\n"
 
-Return ONLY this JSON, nothing else:
+'Return ONLY this JSON:\n{"score": <integer 0-10>, "feedback": "<short constructive feedback>"}'
+    )
 
-{{
-"score": <integer 0 to 10>,
-"feedback": "<2 sentences: what was good and what was missing>"
-}}"""
-
-    response = call_llm(prompt=prompt, model="phi3", max_tokens=150)
+    response = call_llm(prompt=prompt, max_tokens=150)
     raw      = response.get("raw_response", "")
+    print(f"[EVAL] raw: {raw[:200]}")
     result   = extract_json(raw)
 
     if result and "score" in result and "feedback" in result:
-        # Clamp score to valid range
         result["score"] = max(0, min(10, float(result["score"])))
         return result
 
-    # Fallback if phi3 returns unparseable response
-    return {
-        "score":    5,
-        "feedback": "Answer received but evaluation could not be parsed."
-    }
+    return {"score": 5, "feedback": "Answer received but evaluation could not be parsed."}
