@@ -1,11 +1,4 @@
-import sys
-import io
-import os
 import traceback
-os.environ["PYTHONUTF8"] = "1"
-
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
