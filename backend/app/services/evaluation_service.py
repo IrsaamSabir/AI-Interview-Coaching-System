@@ -48,8 +48,8 @@ f"Candidate Answer: {answer}\n\n"
 
 "Scoring rubric (be slightly lenient and realistic):\n"
 "  0-2: No understanding or completely incorrect\n"
-"  3-4: Basic attempt, some relevant ideas but mostly unclear or incorrect\n"
-"  5-6: Acceptable answer, generally correct but missing clarity, depth, or examples\n"
+"  3-5: Basic attempt, some relevant ideas but mostly unclear or incorrect\n"
+"  6-7: Acceptable answer, generally correct but missing clarity, depth, or examples\n"
 "  7-8: Good answer, correct with reasonable explanation or examples\n"
 "  9-10: Strong answer, clear, confident, and shows practical understanding\n\n"
 

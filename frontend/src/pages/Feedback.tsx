@@ -3,6 +3,11 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { RefreshCcw, Loader2, CheckCircle, XCircle, AlertTriangle, TrendingUp, Award, Target, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getReport } from "@/lib/api";
+import {
+  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  LineChart, Line, Cell, PieChart, Pie,
+} from "recharts";
 
 interface AnswerRecord {
   question: string;
@@ -28,6 +33,23 @@ interface Report {
   answers: AnswerRecord[];
   scores: number[];
   status: string;
+  coaching_metrics?: {
+    face?: {
+      sample_count?: number;
+      face_detected_pct?: number;
+      eye_contact_pct?: number;
+      focus_pct?: number;
+      head_center_pct?: number;
+      smile_avg_pct?: number;
+      eyebrow_raise_pct?: number;
+    };
+    speech?: {
+      sample_count?: number;
+      signal_strength_pct?: number;
+      top_emotions?: { name: string; score: number }[];
+    };
+  };
+  coaching_note?: string;
 }
 
 const scoreColor = (s: number) =>
@@ -59,6 +81,8 @@ const levelColor = (l: string) =>
   : l === "Advanced" ? "bg-blue-500/10 text-blue-600 border-blue-500/20"
   : l === "Intermediate" ? "bg-yellow-500/10 text-yellow-600 border-yellow-500/20"
   : "bg-red-500/10 text-red-500 border-red-500/20";
+
+const pct = (value: number | undefined) => `${Math.round(value ?? 0)}%`;
 
 const Feedback = () => {
   const navigate = useNavigate();
@@ -110,6 +134,9 @@ const Feedback = () => {
   const level = report.level || getLevel(overallScore);
   const scorePercent = (overallScore / 10) * 100;
   const answers: AnswerRecord[] = report.answers || [];
+  const coaching = report.coaching_metrics || {};
+  const face = coaching.face || {};
+  const speech = coaching.speech || {};
 
   // Score distribution
   const scores = report.scores || answers.map(a => a.score);
@@ -119,7 +146,7 @@ const Feedback = () => {
 
   return (
     <div className="page-container">
-      <div className="max-w-[860px] mx-auto">
+      <div className="mx-auto max-w-[860px] print-report">
 
         {/* Header */}
         <div className="text-center mb-8">
@@ -195,6 +222,87 @@ const Feedback = () => {
           )}
         </div>
 
+        {/* Coaching analytics (separate from technical score) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+          {/* Delivery & Presence — bar chart */}
+          <div className="card-section">
+            <h2 className="text-sm font-semibold text-foreground mb-3">Delivery & Presence (CV)</h2>
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart
+                data={[
+                  { label: "Face", value: face.face_detected_pct ?? 0 },
+                  { label: "Eye", value: face.eye_contact_pct ?? 0 },
+                  { label: "Focus", value: face.focus_pct ?? 0 },
+                  { label: "Head", value: face.head_center_pct ?? 0 },
+                  { label: "Smile", value: face.smile_avg_pct ?? 0 },
+                ]}
+                margin={{ left: -10, right: 8, top: 4, bottom: 4 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} unit="%" />
+                <Tooltip
+                  contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                  formatter={(v: number) => [`${v}%`]}
+                />
+                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                  {[
+                    face.face_detected_pct ?? 0,
+                    face.eye_contact_pct ?? 0,
+                    face.focus_pct ?? 0,
+                    face.head_center_pct ?? 0,
+                    face.smile_avg_pct ?? 0,
+                  ].map((val, idx) => (
+                    <Cell key={idx} fill={val >= 70 ? "#22c55e" : val >= 40 ? "#eab308" : "#ef4444"} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <p className="mt-2 text-[11px] text-muted-foreground">Samples: {face.sample_count ?? 0}</p>
+          </div>
+
+          {/* Speech & Prosody — emotion bar chart */}
+          <div className="card-section">
+            <h2 className="text-sm font-semibold text-foreground mb-3">Speech & Prosody</h2>
+            <div className="flex items-center justify-between text-xs mb-3">
+              <span className="text-muted-foreground">Signal strength</span>
+              <div className="flex items-center gap-2">
+                <div className="w-24 h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${(speech.signal_strength_pct ?? 0) >= 70 ? "bg-green-500" : (speech.signal_strength_pct ?? 0) >= 40 ? "bg-yellow-500" : "bg-red-500"}`}
+                    style={{ width: `${speech.signal_strength_pct ?? 0}%` }}
+                  />
+                </div>
+                <span className="font-semibold text-foreground">{pct(speech.signal_strength_pct)}</span>
+              </div>
+            </div>
+            {(speech.top_emotions || []).length === 0 ? (
+              <p className="text-xs text-muted-foreground">No speech emotion samples available.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={120}>
+                <BarChart
+                  data={(speech.top_emotions || []).slice(0, 5).map(e => ({ name: e.name.charAt(0).toUpperCase() + e.name.slice(1), value: e.score }))}
+                  margin={{ left: -10, right: 8, top: 4, bottom: 4 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} unit="%" />
+                  <Tooltip
+                    contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                    formatter={(v: number) => [`${v}%`, "Emotion"]}
+                  />
+                  <Bar dataKey="value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} fillOpacity={0.8} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+            <p className="mt-2 text-[11px] text-muted-foreground">Samples: {speech.sample_count ?? 0}</p>
+          </div>
+        </div>
+
+        <p className="mb-6 text-xs text-muted-foreground">
+          {report.coaching_note || "These are guidance indicators, not strict grading."}
+        </p>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
           {/* Strengths */}
           <div className="card-section">
@@ -229,14 +337,16 @@ const Feedback = () => {
           </div>
         </div>
 
-        {/* Skill Scores */}
+        {/* Skill Breakdown — radar + bar side by side */}
         {Object.keys(report.skill_scores).length > 0 && (
           <div className="card-section mb-6">
             <div className="flex items-center gap-2 mb-4">
               <Award className="w-4 h-4 text-primary" />
               <h2 className="text-sm font-semibold text-foreground">Skill Breakdown</h2>
             </div>
-            <div className="space-y-3">
+
+            {/* Progress bars (always visible) */}
+            <div className="space-y-3 mb-6">
               {Object.entries(report.skill_scores).map(([skill, score]) => (
                 <div key={skill}>
                   <div className="flex items-center justify-between mb-1">
@@ -252,6 +362,47 @@ const Feedback = () => {
                 </div>
               ))}
             </div>
+
+            {/* Charts row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              {/* Radar chart */}
+              <div>
+                <p className="text-xs text-muted-foreground mb-2 text-center">Skill Radar</p>
+                <ResponsiveContainer width="100%" height={220}>
+                  <RadarChart data={Object.entries(report.skill_scores).map(([skill, score]) => ({ skill: skill.length > 12 ? skill.slice(0, 12) + "…" : skill, score }))}>
+                    <PolarGrid stroke="hsl(var(--border))" />
+                    <PolarAngleAxis dataKey="skill" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                    <PolarRadiusAxis angle={30} domain={[0, 10]} tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} />
+                    <Radar name="Score" dataKey="score" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.25} strokeWidth={2} />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Horizontal bar chart */}
+              <div>
+                <p className="text-xs text-muted-foreground mb-2 text-center">Score Comparison</p>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart
+                    layout="vertical"
+                    data={Object.entries(report.skill_scores).map(([skill, score]) => ({ skill: skill.length > 14 ? skill.slice(0, 14) + "…" : skill, score }))}
+                    margin={{ left: 8, right: 16, top: 4, bottom: 4 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                    <XAxis type="number" domain={[0, 10]} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                    <YAxis type="category" dataKey="skill" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} width={90} />
+                    <Tooltip
+                      contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                      formatter={(v: number) => [`${v}/10`, "Score"]}
+                    />
+                    <Bar dataKey="score" radius={[0, 4, 4, 0]}>
+                      {Object.values(report.skill_scores).map((score, idx) => (
+                        <Cell key={idx} fill={score >= 7 ? "#22c55e" : score >= 4 ? "#eab308" : "#ef4444"} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
           </div>
         )}
 
@@ -262,6 +413,84 @@ const Feedback = () => {
               <BookOpen className="w-4 h-4 text-primary" />
               <h2 className="text-sm font-semibold text-foreground">Question Breakdown</h2>
             </div>
+
+            {/* Score trend line chart */}
+            <div className="card-section mb-4">
+              <p className="text-xs text-muted-foreground mb-3">Score trend across questions</p>
+              <ResponsiveContainer width="100%" height={160}>
+                <LineChart data={answers.map((a, i) => ({ name: `Q${i + 1}`, score: a.score }))} margin={{ left: 0, right: 8, top: 4, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                  <YAxis domain={[0, 10]} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                  <Tooltip
+                    contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                    formatter={(v: number) => [`${v}/10`, "Score"]}
+                  />
+                  <Line
+                    type="monotone" dataKey="score" strokeWidth={2}
+                    stroke="hsl(var(--primary))" dot={(props) => {
+                      const { cx, cy, payload } = props;
+                      const color = payload.score >= 7 ? "#22c55e" : payload.score >= 4 ? "#eab308" : "#ef4444";
+                      return <circle key={`dot-${cx}-${cy}`} cx={cx} cy={cy} r={5} fill={color} stroke="white" strokeWidth={1.5} />;
+                    }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Score distribution donut */}
+            {scores.length > 0 && (
+              <div className="card-section mb-4">
+                <p className="text-xs text-muted-foreground mb-3">Answer quality distribution</p>
+                <div className="flex items-center gap-6">
+                  <ResponsiveContainer width={140} height={140}>
+                    <PieChart>
+                      <Pie
+                        data={[
+                          { name: "Strong (7-10)", value: highCount, color: "#22c55e" },
+                          { name: "Average (4-6)", value: midCount,  color: "#eab308" },
+                          { name: "Weak (0-3)",   value: lowCount,  color: "#ef4444" },
+                        ].filter(d => d.value > 0)}
+                        cx="50%" cy="50%" innerRadius={38} outerRadius={60}
+                        dataKey="value" paddingAngle={3}
+                      >
+                        {[
+                          { name: "Strong (7-10)", value: highCount, color: "#22c55e" },
+                          { name: "Average (4-6)", value: midCount,  color: "#eab308" },
+                          { name: "Weak (0-3)",   value: lowCount,  color: "#ef4444" },
+                        ].filter(d => d.value > 0).map((entry, idx) => (
+                          <Cell key={idx} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="space-y-2 flex-1">
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="w-2.5 h-2.5 rounded-full bg-green-500 flex-shrink-0" />
+                      <span className="text-muted-foreground">Strong (7–10)</span>
+                      <span className="ml-auto font-semibold text-green-600">{highCount}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 flex-shrink-0" />
+                      <span className="text-muted-foreground">Average (4–6)</span>
+                      <span className="ml-auto font-semibold text-yellow-600">{midCount}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0" />
+                      <span className="text-muted-foreground">Weak (0–3)</span>
+                      <span className="ml-auto font-semibold text-red-500">{lowCount}</span>
+                    </div>
+                    <div className="pt-1 border-t border-border text-xs text-muted-foreground">
+                      {scores.length} questions total
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="space-y-3">
               {answers.map((a, i) => (
                 <div key={i} className={`card-section border ${scoreBg(a.score)}`}>
@@ -289,15 +518,13 @@ const Feedback = () => {
             </div>
           </div>
         )}
-
-        {/* Recommendation */}
         <div className="card-section mb-8 border border-primary/20 bg-primary/5">
           <p className="text-xs font-semibold text-primary mb-1 uppercase tracking-wide">Recommendation</p>
           <p className="text-sm text-foreground leading-relaxed">{report.recommendation}</p>
         </div>
 
         {/* Actions */}
-        <div className="flex items-center justify-center gap-4 mb-8">
+        <div className="no-print mb-8 flex items-center justify-center gap-4">
           <Button onClick={() => navigate("/")} size="lg" className="px-8">
             <RefreshCcw className="w-4 h-4 mr-2" />
             New Interview
@@ -307,7 +534,7 @@ const Feedback = () => {
           </Button>
         </div>
 
-        <p className="text-center text-xs text-muted-foreground">
+        <p className="no-print text-center text-xs text-muted-foreground">
           AI-generated feedback for practice purposes only.
         </p>
       </div>

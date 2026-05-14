@@ -1,15 +1,20 @@
 from pydantic import BaseModel
-from typing import List, Dict
+from typing import List, Dict, Any, Optional
 
 
 class InterviewStartRequest(BaseModel):
     domain: str
     skills: List[str]
+    priority_skills: List[str] = []
+    years_experience: Optional[str] = None
+    total_experience_months: Optional[int] = None
+    jobs: Optional[List[Dict[str, Any]]] = None
 
 
 class InterviewAnswerRequest(BaseModel):
     session_id: str
     answer: str
+    coaching_metrics: Dict[str, Any] | None = None
 
 
 class InterviewStartResponse(BaseModel):
@@ -66,3 +71,5 @@ class ReportResponse(BaseModel):
     recommendation: str
     answers: List[dict]
     scores: List[float]
+    coaching_metrics: Dict[str, Any] = {}
+    coaching_note: str = "These are guidance indicators, not strict grading."

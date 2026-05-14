@@ -3,9 +3,17 @@ MAX_QUESTIONS = 10
 
 class InterviewSession:
 
-    def __init__(self, domain: str, skills: list = None):
-        self.domain           = domain
-        self.skills           = skills or []
+    def __init__(
+        self,
+        domain: str,
+        skills: list = None,
+        priority_skills: list = None,
+        experience_context: str = "",
+    ):
+        self.domain = domain
+        self.skills = skills or []
+        self.priority_skills = priority_skills or []
+        self.experience_context = (experience_context or "").strip()
         self.current_question = None
         self.question_count   = 0
         self.answers          = []
@@ -16,13 +24,14 @@ class InterviewSession:
         self.current_question = q
         self.question_count  += 1
 
-    def save_answer(self, answer: str, score: float, feedback: str):
+    def save_answer(self, answer: str, score: float, feedback: str, coaching_metrics: dict | None = None):
         self.answers.append({
             "question": self.current_question["question"],
             "answer":   answer,
             "score":    score,
             "feedback": feedback,
             "layer":    self.current_question.get("layer", "basic"),
+            "coaching_metrics": coaching_metrics or {},
         })
         self.scores.append(score)
 

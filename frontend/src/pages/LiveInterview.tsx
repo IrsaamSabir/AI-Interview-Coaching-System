@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Mic, MicOff, Video, VideoOff, Clock, AlertCircle,
@@ -11,9 +11,17 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader,
   AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { startInterview, getQuestion, submitAnswer, getReport, textToSpeech, speechToText } from "@/lib/api";
+import {
+  startInterview,
+  getQuestion,
+  submitAnswerWithCoaching,
+  getReport,
+  textToSpeech,
+  speechToText,
+  type InterviewExperiencePayload,
+} from "@/lib/api";
 import { useMediaPipe } from "@/hooks/useMediaPipe";
-import { useHumeProsody } from "@/hooks/useHumeStream";
+import { useHumeProsody, type EmotionScore } from "@/hooks/useHumeStream";
 
 interface AnswerRecord {
   question: string;
@@ -37,6 +45,19 @@ const LiveInterview = () => {
   const location = useLocation();
   const domain = location.state?.domain || "Software Engineering";
   const skills: string[] = location.state?.skills || [];
+  const prioritySkills: string[] = location.state?.prioritySkills || [];
+  const interviewExperience: InterviewExperiencePayload | undefined = (() => {
+    const st = location.state as Record<string, unknown> | null;
+    if (!st) return undefined;
+    const years = st.yearsExperience;
+    const months = st.totalExperienceMonths;
+    const jobs = st.jobs;
+    const payload: InterviewExperiencePayload = {};
+    if (typeof years === "string" && years.trim()) payload.yearsExperience = years.trim();
+    if (typeof months === "number" && Number.isFinite(months)) payload.totalExperienceMonths = months;
+    if (Array.isArray(jobs) && jobs.length) payload.jobs = jobs as Array<Record<string, unknown>>;
+    return Object.keys(payload).length ? payload : undefined;
+  })();
 
   const INTERVIEW_DURATION = 5 * 60;
   const [timeLeft, setTimeLeft] = useState(INTERVIEW_DURATION);
@@ -63,6 +84,7 @@ const LiveInterview = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const mimeTypeRef = useRef<string>("");
+  const latestProsodyRef = useRef<EmotionScore[]>([]);
   const faceMetrics = useMediaPipe(videoRef);
   const hume = useHumeProsody();
 
@@ -70,21 +92,11 @@ const LiveInterview = () => {
   const [coachingHint, setCoachingHint] = useState<string | null>(null);
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const speakHint = (text: string) => {
-    try {
-      if (!window.speechSynthesis) return;
-      window.speechSynthesis.cancel(); // stop any ongoing speech
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.volume = 0.85;
-      utterance.rate = 1.05;
-      utterance.pitch = 1.1;
-      window.speechSynthesis.speak(utterance);
-    } catch { /* speechSynthesis not available — silently skip */ }
-  };
-
   useEffect(() => {
-    // Suppress hints only while TTS is speaking — show during all other stages
-    if (stage === "speaking" || faceMetrics.status !== "ready") { setCoachingHint(null); return; }
+    if (faceMetrics.status !== "ready") {
+      setCoachingHint(null);
+      return;
+    }
     let hint: string | null = null;
     if (!faceMetrics.faceDetected) hint = "Position your face in the camera";
     else if (!faceMetrics.eyeContact) hint = "Look at the camera";
@@ -96,19 +108,16 @@ const LiveInterview = () => {
         if (prev === hint) return prev;
         if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
         hintTimerRef.current = setTimeout(() => setCoachingHint(null), 3000);
-        // Speak only when hint changes to a new message
-        speakHint(hint as string);
         return hint;
       });
     } else {
       if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
       setCoachingHint(null);
     }
-  }, [stage, faceMetrics]);
+  }, [faceMetrics]);
 
   useEffect(() => () => {
     if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
-    window.speechSynthesis?.cancel();
   }, []);
 
   useEffect(() => {
@@ -143,7 +152,7 @@ const LiveInterview = () => {
     initialized.current = true;
     const init = async () => {
       try {
-        const session = await startInterview(domain, skills);
+        const session = await startInterview(domain, skills, prioritySkills, interviewExperience);
         setSessionId(session.session_id);
         const q = await getQuestion(session.session_id);
         setQuestion(q.question); setQuestionNumber(q.question_number); setQuestionLayer(q.layer || "basic");
@@ -189,22 +198,46 @@ const LiveInterview = () => {
       const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
       audioStreamRef.current?.getTracks().forEach((t) => t.stop());
       audioStreamRef.current = null;
-      hume.analyzeAudio(audioBlob);
+      const prosodyPromise = hume.analyzeAudio(audioBlob);
       try {
         const sttResult = await speechToText(audioBlob);
         if (!sttResult.transcript.trim()) { setError("No speech detected. Please try again."); setStage("recording"); return; }
         setTranscript(sttResult.transcript);
+        latestProsodyRef.current = await prosodyPromise;
         await handleSubmit(sttResult.transcript);
       } catch { setError("Failed to transcribe audio. Please try again."); setStage("recording"); }
     };
     recorder.stop();
   };
 
+  const buildCoachingMetrics = useCallback(() => {
+    const prosody = latestProsodyRef.current;
+    const topProsody = (prosody || []).slice(0, 5).map((e) => ({ name: e.name, score: e.score }));
+    const signalStrength =
+      topProsody.length > 0 ? topProsody.reduce((sum, e) => sum + e.score, 0) / topProsody.length : 0;
+
+    return {
+      face: {
+        face_detected: faceMetrics.faceDetected,
+        eye_contact: faceMetrics.eyeContact,
+        looking_away: faceMetrics.lookingAway,
+        head_pose: faceMetrics.headPose,
+        smile_score: faceMetrics.smileScore,
+        eyebrow_raise: faceMetrics.eyebrowRaise,
+        status: faceMetrics.status,
+      },
+      speech: {
+        top_emotions: topProsody,
+        signal_strength: signalStrength,
+      },
+    };
+  }, [faceMetrics]);
+
   const handleSubmit = async (answerText: string) => {
     if (!sessionId || !answerText.trim()) return;
     setStage("evaluating");
     try {
-      const result = await submitAnswer(sessionId, answerText);
+      const result = await submitAnswerWithCoaching(sessionId, answerText, buildCoachingMetrics());
       setFeedback({ score: result.score, feedback: result.feedback });
       setAllAnswers((prev) => [...prev, { question, answer: answerText, score: result.score, feedback: result.feedback }]);
       setAttempts((p) => p + 1); setStage("feedback");
@@ -493,10 +526,6 @@ const LiveInterview = () => {
                       <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
                         <div className={`h-full rounded-full transition-all duration-300 ${faceMetrics.smileScore > 0.4 ? "bg-green-500" : faceMetrics.smileScore > 0.2 ? "bg-yellow-500" : "bg-muted-foreground/40"}`} style={{ width: `${faceMetrics.smileScore * 100}%` }} />
                       </div>
-                    </div>
-                    <div className="flex items-center justify-between p-1.5 rounded-lg bg-muted/30">
-                      <span className="text-xs text-foreground">Mouth</span>
-                      <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${faceMetrics.mouthOpen ? "bg-yellow-500/15 text-yellow-600" : "bg-muted text-muted-foreground"}`}>{faceMetrics.mouthOpen ? "Open" : "Closed"}</span>
                     </div>
                     <div className="flex items-center justify-between p-1.5 rounded-lg bg-muted/30">
                       <span className="text-xs text-foreground">Eyebrow</span>

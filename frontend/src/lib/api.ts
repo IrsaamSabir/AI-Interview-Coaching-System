@@ -11,11 +11,36 @@ export async function analyzeCV(file: File) {
   return res.json();
 }
 
-export async function startInterview(domain: string, skills: string[]) {
+export type InterviewExperiencePayload = {
+  yearsExperience?: string;
+  totalExperienceMonths?: number;
+  jobs?: Array<Record<string, unknown>>;
+};
+
+export async function startInterview(
+  domain: string,
+  skills: string[],
+  prioritySkills: string[] = [],
+  experience?: InterviewExperiencePayload,
+) {
+  const body: Record<string, unknown> = {
+    domain,
+    skills,
+    priority_skills: prioritySkills,
+  };
+  if (experience?.yearsExperience?.trim()) {
+    body.years_experience = experience.yearsExperience.trim();
+  }
+  if (experience?.totalExperienceMonths != null && Number.isFinite(experience.totalExperienceMonths)) {
+    body.total_experience_months = Math.max(0, Math.round(experience.totalExperienceMonths));
+  }
+  if (experience?.jobs?.length) {
+    body.jobs = experience.jobs;
+  }
   const res = await fetch(`${BASE_URL}/interview/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ domain, skills }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
@@ -32,6 +57,20 @@ export async function submitAnswer(session_id: string, answer: string) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ session_id, answer }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function submitAnswerWithCoaching(
+  session_id: string,
+  answer: string,
+  coaching_metrics?: Record<string, unknown>,
+) {
+  const res = await fetch(`${BASE_URL}/interview/answer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id, answer, coaching_metrics }),
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();

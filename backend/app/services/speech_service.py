@@ -7,7 +7,7 @@ import io
 load_dotenv()
 
 ELEVENLABS_API_KEY  = os.getenv("ELEVENLABS_API_KEY", "")
-ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")
 ELEVENLABS_TTS_URL  = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
 
 _openai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -23,7 +23,7 @@ def text_to_speech(text: str) -> bytes:
 
     payload = {
         "text": text,
-        "model_id": "eleven_monolingual_v1",
+        "model_id": "eleven_multilingual_v2",
         "voice_settings": {
             "stability": 0.5,
             "similarity_boost": 0.75

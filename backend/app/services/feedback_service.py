@@ -24,8 +24,14 @@ def generate_report(
     average_score: float
 ) -> dict:
 
+    coaching_metrics = _aggregate_coaching_metrics(answers or [])
+    coaching_note = "These are guidance indicators, not strict grading."
+
     if not answers:
-        return _fallback_report(domain, skills, answers, average_score)
+        fallback = _fallback_report(domain, skills, answers, average_score)
+        fallback["coaching_metrics"] = coaching_metrics
+        fallback["coaching_note"] = coaching_note
+        return fallback
 
     skills_text   = ", ".join(skills[:5]) if skills else "general"
     score_summary = ", ".join([f"Q{i+1}:{a['score']}" for i, a in enumerate(answers)])
@@ -71,10 +77,95 @@ Return ONLY valid JSON with no extra text:
         result["skill_scores"] = _sanitise_skill_scores(
             result.get("skill_scores", {}), average_score
         )
+        result["coaching_metrics"] = coaching_metrics
+        result["coaching_note"] = coaching_note
         return result
 
     print("[LLM report parsing failed] — using rule-based fallback")
-    return _fallback_report(domain, skills, answers, average_score)
+    fallback = _fallback_report(domain, skills, answers, average_score)
+    fallback["coaching_metrics"] = coaching_metrics
+    fallback["coaching_note"] = coaching_note
+    return fallback
+
+
+def _aggregate_coaching_metrics(answers: list) -> dict:
+    face_samples = []
+    speech_samples = []
+    emotion_totals = {}
+
+    for item in answers or []:
+        coaching = item.get("coaching_metrics") or {}
+        face = coaching.get("face") or {}
+        speech = coaching.get("speech") or {}
+
+        if isinstance(face, dict):
+            face_samples.append(face)
+        if isinstance(speech, dict):
+            speech_samples.append(speech)
+            for emo in speech.get("top_emotions", []) or []:
+                name = str(emo.get("name", "")).strip().lower()
+                try:
+                    score = float(emo.get("score", 0))
+                except Exception:
+                    score = 0.0
+                if name:
+                    emotion_totals[name] = emotion_totals.get(name, 0.0) + score
+
+    def pct(numerator: int, denominator: int) -> float:
+        if denominator <= 0:
+            return 0.0
+        return round((numerator / denominator) * 100, 1)
+
+    face_total = len(face_samples)
+    face_detected = sum(1 for f in face_samples if bool(f.get("face_detected")))
+    eye_contact = sum(1 for f in face_samples if bool(f.get("eye_contact")))
+    focus = sum(1 for f in face_samples if not bool(f.get("looking_away")))
+    head_center = sum(1 for f in face_samples if str(f.get("head_pose", "")).lower() == "center")
+    eyebrow_raise = sum(1 for f in face_samples if bool(f.get("eyebrow_raise")))
+    smile_avg = round(
+        (
+            sum(float(f.get("smile_score", 0.0)) for f in face_samples if f.get("smile_score") is not None)
+            / face_total
+        )
+        * 100,
+        1,
+    ) if face_total else 0.0
+
+    speech_total = len(speech_samples)
+    speech_signal_avg = round(
+        (
+            sum(float(s.get("signal_strength", 0.0)) for s in speech_samples if s.get("signal_strength") is not None)
+            / speech_total
+        )
+        * 100,
+        1,
+    ) if speech_total else 0.0
+
+    top_emotions = sorted(
+        (
+            {"name": name, "score": round((total / max(1, speech_total)) * 100, 1)}
+            for name, total in emotion_totals.items()
+        ),
+        key=lambda x: x["score"],
+        reverse=True,
+    )[:5]
+
+    return {
+        "face": {
+            "sample_count": face_total,
+            "face_detected_pct": pct(face_detected, face_total),
+            "eye_contact_pct": pct(eye_contact, face_total),
+            "focus_pct": pct(focus, face_total),
+            "head_center_pct": pct(head_center, face_total),
+            "smile_avg_pct": smile_avg,
+            "eyebrow_raise_pct": pct(eyebrow_raise, face_total),
+        },
+        "speech": {
+            "sample_count": speech_total,
+            "signal_strength_pct": speech_signal_avg,
+            "top_emotions": top_emotions,
+        },
+    }
 
 
 def _is_valid_report(data: dict) -> bool:

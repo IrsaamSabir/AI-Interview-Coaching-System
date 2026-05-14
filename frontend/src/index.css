@@ -1,10 +1,10 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /* AI Interview Coaching System - Professional Academic Design System */
-
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 
 @layer base {
   :root {
@@ -157,5 +157,30 @@
 
   .page-centered {
     @apply flex items-center justify-center min-h-screen bg-background px-6;
+  }
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-report {
+    max-width: 100% !important;
+  }
+
+  .card-section {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    box-shadow: none !important;
   }
 }

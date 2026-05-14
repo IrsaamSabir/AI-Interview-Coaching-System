@@ -14,7 +14,7 @@ export function useHumeProsody() {
   const [analyzing, setAnalyzing] = useState(false);
 
   const analyzeAudio = useCallback(async (audioBlob: Blob) => {
-    if (!audioBlob || audioBlob.size === 0) return;
+    if (!audioBlob || audioBlob.size === 0) return [] as EmotionScore[];
     setAnalyzing(true);
     try {
       const form = new FormData();
@@ -28,7 +28,7 @@ export function useHumeProsody() {
 
       if (!res.ok) {
         console.warn("[Hume] analyze-prosody failed:", await res.text());
-        return;
+        return [] as EmotionScore[];
       }
 
       const data = await res.json();
@@ -37,8 +37,10 @@ export function useHumeProsody() {
         .slice(0, 10);
 
       setEmotions({ prosody });
+      return prosody;
     } catch (e) {
       console.warn("[Hume] Error:", e);
+      return [] as EmotionScore[];
     } finally {
       setAnalyzing(false);
     }

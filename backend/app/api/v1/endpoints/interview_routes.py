@@ -15,10 +15,78 @@ from app.core.session_store          import create_session, get_session
 router = APIRouter()
 
 
+def _normalize_skill_list(values: list[str] | None) -> list[str]:
+    normalized = []
+    seen = set()
+    for value in values or []:
+        skill = str(value).strip().lower()
+        if skill and skill not in seen:
+            normalized.append(skill)
+            seen.add(skill)
+    return normalized
+
+
+def _merge_skills(base_skills: list[str], priority_skills: list[str]) -> list[str]:
+    merged = list(priority_skills)
+    seen = set(priority_skills)
+    for skill in base_skills:
+        if skill not in seen:
+            merged.append(skill)
+            seen.add(skill)
+    return merged
+
+
+def _build_experience_context(
+    years_experience: str | None,
+    total_months: int | None,
+    jobs: list | None,
+) -> str:
+    lines: list[str] = []
+    if total_months is not None and total_months >= 0:
+        lines.append(f"Total paid experience: {total_months} months.")
+    if years_experience and str(years_experience).strip():
+        lines.append(f"Experience summary: {str(years_experience).strip()}.")
+    if jobs:
+        brief: list[str] = []
+        for row in jobs[:8]:
+            if not isinstance(row, dict):
+                continue
+            company = str(row.get("company", "")).strip()
+            if not company:
+                continue
+            start = row.get("start")
+            end = row.get("end")
+            end_s = "present" if end is None else str(end).strip()
+            brief.append(f"{company} ({start} – {end_s})")
+        if brief:
+            lines.append("Roles: " + "; ".join(brief) + ".")
+    return "\n".join(lines)
+
+
 @router.post("/start", response_model=InterviewStartResponse)
 def start_interview(request: InterviewStartRequest):
-    first_q    = generate_first_question(request.domain, request.skills)
-    session    = InterviewSession(domain=request.domain, skills=request.skills)
+    skills = _normalize_skill_list(request.skills)
+    priority_skills = _normalize_skill_list(request.priority_skills)
+    merged_skills = _merge_skills(skills, priority_skills)
+
+    exp_ctx = _build_experience_context(
+        request.years_experience,
+        request.total_experience_months,
+        request.jobs if isinstance(request.jobs, list) else None,
+    )
+
+    first_q = generate_first_question(
+        request.domain,
+        merged_skills,
+        priority_skills,
+        experience_context=exp_ctx,
+    )
+    session = InterviewSession(
+        domain=request.domain,
+        skills=merged_skills,
+        priority_skills=priority_skills,
+        experience_context=exp_ctx,
+    )
     session.set_question(first_q)
     session_id = str(uuid.uuid4())
     create_session(session_id, session)
@@ -55,17 +123,24 @@ def submit_answer(request: InterviewAnswerRequest):
     score      = float(evaluation.get("score", 5))
     feedback   = evaluation.get("feedback", "No feedback available.")
 
-    session.save_answer(answer=request.answer, score=score, feedback=feedback)
+    session.save_answer(
+        answer=request.answer,
+        score=score,
+        feedback=feedback,
+        coaching_metrics=request.coaching_metrics or {},
+    )
 
     interview_complete = session.is_completed()
     if not interview_complete:
         next_q = generate_next_question(
-            domain         = session.domain,
-            skills         = session.skills,
-            prev_question  = question,
-            prev_answer    = request.answer,
-            score          = score,
-            question_count = session.question_count
+            domain              = session.domain,
+            skills              = session.skills,
+            priority_skills     = session.priority_skills,
+            prev_question       = question,
+            prev_answer         = request.answer,
+            score               = score,
+            question_count      = session.question_count,
+            experience_context  = session.experience_context,
         )
         session.set_question(next_q)
     else:
@@ -127,7 +202,9 @@ def get_report(session_id: str):
         skill_scores    = r.get("skill_scores", {}),
         recommendation  = r.get("recommendation", ""),
         answers         = session.get_transcript(),
-        scores          = session.scores
+        scores          = session.scores,
+        coaching_metrics= r.get("coaching_metrics", {}),
+        coaching_note   = r.get("coaching_note", "These are guidance indicators, not strict grading."),
     )
 
 
