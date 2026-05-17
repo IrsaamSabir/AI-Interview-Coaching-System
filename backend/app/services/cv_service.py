@@ -15,8 +15,11 @@ Reference date for roles ending "Present" or with no end date: {today}
 Document text:
 {cv_text}
 
-If this is NOT a CV/resume (certificate, transcript, letter, etc.), return only:
+If this is NOT a CV/resume (certificate, transcript, invoice, letter, ID, image, etc.),
+return ONLY this and nothing else:
 {{"is_cv": false}}
+
+Do NOT extract skills or jobs from non-CV documents under any circumstances.
 
 If it IS a CV, return ONLY valid JSON (no markdown, no extra text):
 
@@ -71,7 +74,9 @@ def analyze_cv(path: str) -> dict:
     if not result:
         raise RuntimeError("Failed to parse document. Please upload a valid CV/resume.")
 
-    if not result.get("is_cv", True):
+    # FIX 1: Default changed to False — reject if is_cv key is missing or not explicitly True
+    # FIX 2: Strict identity check (is not True) instead of falsy check
+    if result.get("is_cv") is not True:
         raise RuntimeError("The uploaded document does not appear to be a CV or resume. Please upload your resume.")
 
     skills = [s.lower().strip() for s in result.get("skills", [])]
@@ -104,7 +109,9 @@ def analyze_cv(path: str) -> dict:
         if not years_label:
             years_label = "0 months"
 
-    if not skills:
+    # FIX 3: Raised minimum skills threshold from 0 to 3 to reject junk documents
+    # that slip through with only 1-2 accidental keyword matches
+    if len(skills) < 3:
         raise RuntimeError("No skills found in the document. Please upload a proper CV/resume.")
 
     out = {

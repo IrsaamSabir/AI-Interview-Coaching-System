@@ -85,6 +85,7 @@ const LiveInterview = () => {
   const audioChunksRef = useRef<Blob[]>([]);
   const mimeTypeRef = useRef<string>("");
   const latestProsodyRef = useRef<EmotionScore[]>([]);
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
   const faceMetrics = useMediaPipe(videoRef);
   const hume = useHumeProsody();
 
@@ -137,6 +138,12 @@ const LiveInterview = () => {
     return () => {
       webcamStreamRef.current?.getTracks().forEach((t) => t.stop());
       audioStreamRef.current?.getTracks().forEach((t) => t.stop());
+      // Stop any TTS audio playing when leaving the page
+      if (ttsAudioRef.current) {
+        ttsAudioRef.current.pause();
+        ttsAudioRef.current.src = "";
+        ttsAudioRef.current = null;
+      }
     };
   }, []);
 
@@ -169,8 +176,16 @@ const LiveInterview = () => {
       const blob = await textToSpeech(text);
       objectUrl = URL.createObjectURL(blob);
       const audio = new Audio(objectUrl);
-      await new Promise<void>((resolve) => { audio.onended = () => resolve(); audio.onerror = () => resolve(); audio.play().catch(() => resolve()); });
-    } catch { } finally { if (objectUrl) URL.revokeObjectURL(objectUrl); }
+      ttsAudioRef.current = audio;
+      await new Promise<void>((resolve) => {
+        audio.onended = () => resolve();
+        audio.onerror = () => resolve();
+        audio.play().catch(() => resolve());
+      });
+    } catch { } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      ttsAudioRef.current = null;
+    }
     setStage("recording");
   };
 

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
-import shutil
+import shutil, os
 import traceback
 from app.services.cv_service import analyze_cv
 
@@ -7,6 +7,7 @@ router = APIRouter()
 
 @router.post("/analyze")
 async def analyze(file: UploadFile = File(...)):
+    os.makedirs("uploads", exist_ok=True)
     path = f"uploads/{file.filename}"
     with open(path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
